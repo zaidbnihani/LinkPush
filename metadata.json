@@ -1,0 +1,6 @@
+{
+  "name": "LinkPush",
+  "description": "تطبيق مشاركة الروابط عبر شبكة الواي فاي المحلية واكتشاف الأجهزة تلقائياً",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

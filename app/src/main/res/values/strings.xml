@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">LinkPush</string>
+    <string name="app_description">تطبيق إرسال الروابط عبر شبكة الواي فاي المحلية</string>
+</resources>
