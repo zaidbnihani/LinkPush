@@ -48,6 +48,30 @@ object NetworkUtils {
     }
 
     /**
+     * Gets the gateway / router IPv4 address on the Wi-Fi network.
+     */
+    fun getGatewayIpAddress(context: Context): String? {
+        try {
+            val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+            val dhcpInfo = wifiManager?.dhcpInfo
+            val gatewayInt = dhcpInfo?.gateway ?: 0
+            if (gatewayInt != 0) {
+                val ip = String.format(
+                    "%d.%d.%d.%d",
+                    gatewayInt and 0xff,
+                    gatewayInt shr 8 and 0xff,
+                    gatewayInt shr 16 and 0xff,
+                    gatewayInt shr 24 and 0xff
+                )
+                if (ip != "0.0.0.0") return ip
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return null
+    }
+
+    /**
      * Given an IP like "192.168.1.45", returns subnet prefix "192.168.1."
      */
     fun getSubnetPrefix(ip: String): String? {

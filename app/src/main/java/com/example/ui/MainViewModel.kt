@@ -54,7 +54,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _sendState = MutableStateFlow<SendState>(SendState.Idle)
     val sendState: StateFlow<SendState> = _sendState.asStateFlow()
 
-    private val _defaultPushUrl = MutableStateFlow("https://google.com")
+    private val _defaultPushUrl = MutableStateFlow("")
     val defaultPushUrl: StateFlow<String> = _defaultPushUrl.asStateFlow()
 
     init {
@@ -93,6 +93,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun scanNetwork() {
         if (_isScanning.value) return
         val currentLocalIp = NetworkUtils.getLocalIpAddress(getApplication())
+        val gatewayIp = NetworkUtils.getGatewayIpAddress(getApplication())
         _localIp.value = currentLocalIp
 
         if (currentLocalIp.isNullOrBlank() || currentLocalIp == "0.0.0.0") {
@@ -116,6 +117,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             NetworkScanner.scanSubnet(
                 subnetPrefix = prefix,
                 localIp = currentLocalIp,
+                gatewayIp = gatewayIp,
                 onDeviceFound = { device ->
                     // Exclude self (local device) from discovered list as requested
                     if (device.isLocalDevice) return@scanSubnet
@@ -123,8 +125,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     // Match with saved devices to enrich name and URL
                     val saved = savedDevices.value.find { it.deviceIp == device.ip }
                     val enrichedDevice = device.copy(
-                        savedName = saved?.deviceName,
-                        savedLinkUrl = saved?.linkUrl
+                        savedName = saved?.deviceName ?: device.savedName,
+                        savedLinkUrl = saved?.linkUrl ?: device.savedLinkUrl
                     )
                     tempDiscovered.add(enrichedDevice)
                     _discoveredDevices.value = tempDiscovered.toList()
@@ -138,16 +140,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun sendLinkToDevice(targetIp: String, customUrl: String? = null) {
+    fun sendLinkToDevice(targetIp: String, customUrl: String? = null, port: Int = 8888) {
         val urlToSend = customUrl?.takeIf { it.isNotBlank() } ?: defaultPushUrl.value
+        val normalizedUrl = NetworkUtils.normalizeUrl(urlToSend)
 
         viewModelScope.launch {
             _sendState.value = SendState.Sending(targetIp)
-            val result = LinkSender.sendLink(targetIp, urlToSend)
+            val result = LinkSender.sendLink(targetIp, normalizedUrl, port)
             result.onSuccess { msg ->
                 _sendState.value = SendState.Success(msg)
             }.onFailure { err ->
-                _sendState.value = SendState.Error("فشل الإرسال: ${err.localizedMessage ?: "فشل الاتصال"}")
+                // If port 8888 connection refused / failed (e.g. router or device without LinkPush server),
+                // fallback to opening the URL or router/device web page in the browser!
+                val fallbackUrl = if (normalizedUrl.isNotEmpty()) normalizedUrl else "http://$targetIp"
+                try {
+                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(fallbackUrl)).apply {
+                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    getApplication<Application>().startActivity(intent)
+                    _sendState.value = SendState.Success("تم فتح الرابط في المتصفح بنجاح ($targetIp)")
+                } catch (e: Exception) {
+                    _sendState.value = SendState.Error("فشل الإرسال: ${err.localizedMessage ?: "فشل الاتصال"}")
+                }
             }
         }
     }

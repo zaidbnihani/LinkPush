@@ -23,7 +23,7 @@ import androidx.compose.ui.unit.dp
 fun SaveDeviceDialog(
     initialIp: String = "",
     initialName: String = "",
-    initialUrl: String = "https://google.com",
+    initialUrl: String = "",
     onDismiss: () -> Unit,
     onSave: (ip: String, name: String, url: String) -> Unit
 ) {

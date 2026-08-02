@@ -49,8 +49,8 @@ fun MainAppScreen(viewModel: MainViewModel) {
 
     // Automatic update check on app launch via GitHub API
     UpdateCheckerEffect(
-        owner = "example-owner", // REPLACE with your GitHub username/owner
-        repo = "example-repo",   // REPLACE with your GitHub repository name
+        owner = "zaidbnihani",
+        repo = "LinkPush",
         currentVersion = com.example.BuildConfig.VERSION_NAME
     )
 
@@ -66,7 +66,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
     var showSaveDialog by remember { mutableStateOf(false) }
     var dialogInitialIp by remember { mutableStateOf("") }
     var dialogInitialName by remember { mutableStateOf("") }
-    var dialogInitialUrl by remember { mutableStateOf("https://google.com") }
+    var dialogInitialUrl by remember { mutableStateOf("") }
 
     // Dialog for selecting a preset link to send to a discovered device
     var selectedDeviceForPreset by remember { mutableStateOf<DiscoveredDevice?>(null) }
@@ -125,7 +125,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
                     onClick = {
                         dialogInitialIp = ""
                         dialogInitialName = ""
-                        dialogInitialUrl = "https://google.com"
+                        dialogInitialUrl = ""
                         showSaveDialog = true
                     },
                     containerColor = MaterialTheme.colorScheme.primary,
@@ -148,6 +148,19 @@ fun MainAppScreen(viewModel: MainViewModel) {
                         sendState = sendState,
                         onDeviceClick = { device ->
                             selectedDeviceForPreset = device
+                        },
+                        onRescanClick = {
+                            viewModel.scanNetwork()
+                        },
+                        onManualIpClick = { ip ->
+                            val matchedSaved = savedDevices.find { it.deviceIp == ip }
+                            selectedDeviceForPreset = DiscoveredDevice(
+                                ip = ip,
+                                isLocalDevice = false,
+                                responseTimeMs = 0,
+                                savedName = matchedSaved?.deviceName,
+                                savedLinkUrl = matchedSaved?.linkUrl
+                            )
                         }
                     )
                 }
@@ -187,7 +200,7 @@ fun MainAppScreen(viewModel: MainViewModel) {
             savedDevices = savedDevices,
             onDismiss = { selectedDeviceForPreset = null },
             onSelectPreset = { linkUrl, presetName ->
-                viewModel.sendLinkToDevice(targetIp = device.ip, customUrl = linkUrl)
+                viewModel.sendLinkToDevice(targetIp = device.ip, customUrl = linkUrl, port = device.port)
             },
             onGoToSettings = {
                 selectedTab = AppTab.SETTINGS

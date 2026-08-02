@@ -3,6 +3,6 @@
     <item
         android:width="66dp"
         android:height="66dp"
-        android:drawable="@drawable/ic_linkpush_logo_1785320513455"
+        android:drawable="@drawable/ic_linkpush_vector"
         android:gravity="center" />
 </layer-list>

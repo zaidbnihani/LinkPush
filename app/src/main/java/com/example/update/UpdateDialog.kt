@@ -30,8 +30,8 @@ import androidx.compose.ui.unit.dp
  */
 @Composable
 fun UpdateCheckerEffect(
-    owner: String = "example-owner",
-    repo: String = "example-repo",
+    owner: String = "zaidbnihani",
+    repo: String = "LinkPush",
     currentVersion: String = com.example.BuildConfig.VERSION_NAME
 ) {
     var updateInfo by remember { mutableStateOf<UpdateInfo?>(null) }

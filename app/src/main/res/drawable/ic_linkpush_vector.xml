@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Link Chain Icon left loop -->
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M39,54 C39,45.71 45.71,39 54,39 L60,39 C61.66,39 63,37.66 63,36 C63,34.34 61.66,33 60,33 L54,33 C42.4,33 33,42.4 33,54 C33,65.6 42.4,75 54,75 L60,75 C61.66,75 63,73.66 63,72 C63,70.34 61.66,69 60,69 L54,69 C45.71,69 39,62.29 39,54 Z" />
+        
+    <!-- Link Chain Icon right loop -->
+    <path
+        android:fillColor="#3D5AFE"
+        android:pathData="M69,54 C69,62.29 62.29,69 54,69 L48,69 C46.34,69 45,70.34 45,72 C45,73.66 46.34,75 48,75 L54,75 C65.6,75 75,65.6 75,54 C75,42.4 65.6,33 54,33 L48,33 C46.34,33 45,34.34 45,36 C45,37.66 46.34,39 48,39 L54,39 C62.29,39 69,45.71 69,54 Z" />
+
+    <!-- Center Connecting Arrow -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M42,54 L62,54 C63.66,54 65,52.66 65,51 C65,49.34 63.66,48 62,48 L42,48 C40.34,48 39,49.34 39,51 C39,52.66 40.34,54 42,54 Z M58,45 L68,51 L58,57 Z" />
+</vector>

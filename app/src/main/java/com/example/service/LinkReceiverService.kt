@@ -33,9 +33,42 @@ class LinkReceiverService : Service() {
     private var serverSocket: ServerSocket? = null
     private var isListening = false
 
+    private var wakeLock: android.os.PowerManager.WakeLock? = null
+    private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        acquireLocks()
+    }
+
+    private fun acquireLocks() {
+        try {
+            if (wakeLock == null) {
+                val pm = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+                wakeLock = pm?.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "LinkPush::ReceiverWakeLock")
+                wakeLock?.acquire(30 * 60 * 1000L) // 30 minutes wake lock
+            }
+            if (wifiLock == null) {
+                val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+                @Suppress("DEPRECATION")
+                wifiLock = wm?.createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "LinkPush::WifiLock")
+                wifiLock?.acquire()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun releaseLocks() {
+        try {
+            wakeLock?.let { if (it.isHeld) it.release() }
+            wakeLock = null
+            wifiLock?.let { if (it.isHeld) it.release() }
+            wifiLock = null
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -120,7 +153,7 @@ class LinkReceiverService : Service() {
                         _receivedLinksCount.value += 1
 
                         openUrlInBrowser(normalizedUrl)
-                        showLinkReceivedNotification(normalizedUrl)
+                        // Directly opens in browser without sending received notification as requested
                     }
                 }
             }
@@ -136,11 +169,12 @@ class LinkReceiverService : Service() {
     private fun openUrlInBrowser(url: String) {
         try {
             val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             }
             applicationContext.startActivity(browserIntent)
         } catch (e: Exception) {
             e.printStackTrace()
+            showLinkReceivedNotification(url)
         }
     }
 
@@ -213,6 +247,7 @@ class LinkReceiverService : Service() {
 
     private fun stopReceiver() {
         isListening = false
+        releaseLocks()
         try {
             serverSocket?.close()
         } catch (_: Exception) {}

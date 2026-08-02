@@ -18,26 +18,39 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AddLink
 import androidx.compose.material.icons.filled.Phonelink
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.network.DiscoveredDevice
@@ -49,8 +62,12 @@ fun HomeScreen(
     scanProgress: Float,
     discoveredDevices: List<DiscoveredDevice>,
     sendState: SendState,
-    onDeviceClick: (DiscoveredDevice) -> Unit
+    onDeviceClick: (DiscoveredDevice) -> Unit,
+    onRescanClick: () -> Unit,
+    onManualIpClick: (String) -> Unit
 ) {
+    var showManualIpDialog by remember { mutableStateOf(false) }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -58,17 +75,46 @@ fun HomeScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                Text(
-                    text = "الأجهزة المكتشفة",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "اضغط على الجهاز لاختيار الرابط المسجل وفتحه مباشرةً",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "الأجهزة المكتشفة",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "اضغط على الجهاز لاختيار الرابط المسجل وفتحه مباشرةً",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Row {
+                    IconButton(
+                        onClick = onRescanClick,
+                        enabled = !isScanning
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "إعادة الفحص",
+                            tint = if (isScanning) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { showManualIpDialog = true }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AddLink,
+                            contentDescription = "عنوان IP يدوياً",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
             }
 
             AnimatedVisibility(visible = isScanning) {
@@ -85,12 +131,76 @@ fun HomeScreen(
 
         if (discoveredDevices.isEmpty() && !isScanning) {
             item {
-                Text(
-                    text = "لم يتم اكتشاف أجهزة على الشبكة حالياً",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 16.dp)
-                )
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                    ),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Wifi,
+                                contentDescription = null,
+                                modifier = Modifier.size(28.dp),
+                                tint = MaterialTheme.colorScheme.outline
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Text(
+                            text = "لم يتم اكتشاف أجهزة تلقائياً بعد",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "تأكد من فتح تطبيق LinkPush على الجهاز الآخر المتصل بنفس شبكة الواي فاي، أو أدخل عنوان IP الجهاز مباشرةً.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Spacer(modifier = Modifier.height(18.dp))
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Button(
+                                onClick = onRescanClick,
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("إعادة الفحص")
+                            }
+
+                            OutlinedButton(
+                                onClick = { showManualIpDialog = true },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.AddLink, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("IP يدوياً")
+                            }
+                        }
+                    }
+                }
             }
         } else {
             items(discoveredDevices, key = { it.ip }) { device ->
@@ -101,6 +211,16 @@ fun HomeScreen(
                 )
             }
         }
+    }
+
+    if (showManualIpDialog) {
+        ManualIpDialog(
+            onDismiss = { showManualIpDialog = false },
+            onConfirm = { ip ->
+                showManualIpDialog = false
+                onManualIpClick(ip)
+            }
+        )
     }
 }
 
@@ -214,4 +334,71 @@ fun DiscoveredDeviceItemCard(
             }
         }
     }
+}
+
+@Composable
+fun ManualIpDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (ip: String) -> Unit
+) {
+    var ipInput by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "إدخال عنوان IP يدوياً",
+                style = MaterialTheme.typography.titleLarge
+            )
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "أدخل عنوان IP الخاص بالجهاز المستهدف المتصل بالشبكة:",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = ipInput,
+                    onValueChange = {
+                        ipInput = it
+                        error = false
+                    },
+                    label = { Text("عنوان IP") },
+                    placeholder = { Text("مثال: 192.168.1.50") },
+                    isError = error,
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (error) {
+                    Text(
+                        text = "يرجى إدخال عنوان IP صحيح",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (ipInput.isBlank()) {
+                        error = true
+                        return@TextButton
+                    }
+                    onConfirm(ipInput.trim())
+                }
+            ) {
+                Text("متابعة")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("إلغاء")
+            }
+        }
+    )
 }
