@@ -20,14 +20,84 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun SaveDeviceDialog(
-    initialIp: String = "",
+fun EditDeviceNameDialog(
+    ip: String,
+    initialName: String = "",
+    onDismiss: () -> Unit,
+    onSave: (customName: String) -> Unit
+) {
+    var deviceName by remember { mutableStateOf(initialName) }
+    var nameError by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "تعديل اسم الجهاز",
+                style = MaterialTheme.typography.titleLarge
+            )
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "عنوان IP: $ip",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedTextField(
+                    value = deviceName,
+                    onValueChange = {
+                        deviceName = it
+                        nameError = false
+                    },
+                    label = { Text("اسم الجهاز") },
+                    placeholder = { Text("مثال: هاتف أحمد، شاشة الصالة") },
+                    isError = nameError,
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (nameError) {
+                    Text(
+                        text = "يرجى إدخال اسم للجهاز",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (deviceName.isBlank()) {
+                        nameError = true
+                        return@TextButton
+                    }
+                    onSave(deviceName.trim())
+                    onDismiss()
+                }
+            ) {
+                Text("حفظ")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("إلغاء")
+            }
+        }
+    )
+}
+
+@Composable
+fun SavePresetLinkDialog(
+    initialId: Long = 0,
     initialName: String = "",
     initialUrl: String = "",
     onDismiss: () -> Unit,
-    onSave: (ip: String, name: String, url: String) -> Unit
+    onSave: (id: Long, name: String, url: String) -> Unit
 ) {
-    var deviceName by remember { mutableStateOf(initialName) }
+    var linkName by remember { mutableStateOf(initialName) }
     var linkUrl by remember { mutableStateOf(initialUrl) }
 
     var nameError by remember { mutableStateOf(false) }
@@ -37,20 +107,20 @@ fun SaveDeviceDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = if (initialName.isEmpty()) "إضافة رابط واسم جديد" else "تعديل الرابط",
+                text = if (initialId == 0L) "إضافة رابط جديد" else "تعديل الرابط المسجّل",
                 style = MaterialTheme.typography.titleLarge
             )
         },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 OutlinedTextField(
-                    value = deviceName,
+                    value = linkName,
                     onValueChange = {
-                        deviceName = it
+                        linkName = it
                         nameError = false
                     },
-                    label = { Text("الاسم") },
-                    placeholder = { Text("مثال: موقعي المفضّل، جوجل") },
+                    label = { Text("اسم الرابط / العنوان") },
+                    placeholder = { Text("مثال: موقعي المفضّل، فيسبوك") },
                     isError = nameError,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -71,7 +141,7 @@ fun SaveDeviceDialog(
                         linkUrl = it
                         urlError = false
                     },
-                    label = { Text("الرابط") },
+                    label = { Text("الرابط (URL)") },
                     placeholder = { Text("https://example.com") },
                     isError = urlError,
                     singleLine = true,
@@ -90,7 +160,7 @@ fun SaveDeviceDialog(
         confirmButton = {
             TextButton(
                 onClick = {
-                    if (deviceName.isBlank()) {
+                    if (linkName.isBlank()) {
                         nameError = true
                         return@TextButton
                     }
@@ -98,7 +168,7 @@ fun SaveDeviceDialog(
                         urlError = true
                         return@TextButton
                     }
-                    onSave(initialIp, deviceName.trim(), linkUrl.trim())
+                    onSave(initialId, linkName.trim(), linkUrl.trim())
                     onDismiss()
                 }
             ) {

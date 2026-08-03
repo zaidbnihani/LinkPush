@@ -3,11 +3,9 @@ package com.example.ui.screens
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -29,10 +27,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.SavedDevice
 import com.example.network.DiscoveredDevice
 import com.example.ui.MainViewModel
 import com.example.ui.SendState
-import com.example.ui.components.SaveDeviceDialog
+import com.example.ui.components.EditDeviceNameDialog
+import com.example.ui.components.SavePresetLinkDialog
 import com.example.ui.components.SelectPresetLinkDialog
 import com.example.update.UpdateCheckerEffect
 
@@ -59,14 +59,17 @@ fun MainAppScreen(viewModel: MainViewModel) {
     val discoveredDevices by viewModel.discoveredDevices.collectAsStateWithLifecycle()
     val savedDevices by viewModel.savedDevices.collectAsStateWithLifecycle()
     val sendState by viewModel.sendState.collectAsStateWithLifecycle()
+    val isBatteryOptimizationIgnored by viewModel.isBatteryOptimizationIgnored.collectAsStateWithLifecycle()
+    val isOverlayPermissionGranted by viewModel.isOverlayPermissionGranted.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // Dialog for adding/editing link settings
-    var showSaveDialog by remember { mutableStateOf(false) }
-    var dialogInitialIp by remember { mutableStateOf("") }
-    var dialogInitialName by remember { mutableStateOf("") }
-    var dialogInitialUrl by remember { mutableStateOf("") }
+    // Dialog state for adding/editing a saved link in Settings
+    var showAddLinkDialog by remember { mutableStateOf(false) }
+    var linkToEdit by remember { mutableStateOf<SavedDevice?>(null) }
+
+    // Dialog state for editing device custom name on Home Screen
+    var deviceToEditName by remember { mutableStateOf<DiscoveredDevice?>(null) }
 
     // Dialog for selecting a preset link to send to a discovered device
     var selectedDeviceForPreset by remember { mutableStateOf<DiscoveredDevice?>(null) }
@@ -119,23 +122,6 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 )
             }
         },
-        floatingActionButton = {
-            if (selectedTab == AppTab.SETTINGS) {
-                FloatingActionButton(
-                    onClick = {
-                        dialogInitialIp = ""
-                        dialogInitialName = ""
-                        dialogInitialUrl = ""
-                        showSaveDialog = true
-                    },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.testTag("add_saved_device_fab")
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = "إضافة")
-                }
-            }
-        },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding)) {
@@ -146,20 +132,28 @@ fun MainAppScreen(viewModel: MainViewModel) {
                         scanProgress = scanProgress,
                         discoveredDevices = discoveredDevices,
                         sendState = sendState,
+                        isBatteryOptimizationIgnored = isBatteryOptimizationIgnored,
+                        onFixBatteryOptimization = {
+                            viewModel.requestDisableBatteryOptimization()
+                        },
+                        isOverlayPermissionGranted = isOverlayPermissionGranted,
+                        onFixOverlayPermission = {
+                            viewModel.requestOverlayPermission()
+                        },
                         onDeviceClick = { device ->
                             selectedDeviceForPreset = device
+                        },
+                        onDeviceLongClick = { device ->
+                            deviceToEditName = device
                         },
                         onRescanClick = {
                             viewModel.scanNetwork()
                         },
                         onManualIpClick = { ip ->
-                            val matchedSaved = savedDevices.find { it.deviceIp == ip }
                             selectedDeviceForPreset = DiscoveredDevice(
                                 ip = ip,
                                 isLocalDevice = false,
-                                responseTimeMs = 0,
-                                savedName = matchedSaved?.deviceName,
-                                savedLinkUrl = matchedSaved?.linkUrl
+                                responseTimeMs = 0
                             )
                         }
                     )
@@ -167,28 +161,53 @@ fun MainAppScreen(viewModel: MainViewModel) {
                 AppTab.SETTINGS -> {
                     SettingsScreen(
                         savedDevices = savedDevices,
-                        onEditDeviceClick = { dev ->
-                            dialogInitialIp = dev.deviceIp
-                            dialogInitialName = dev.deviceName
-                            dialogInitialUrl = dev.linkUrl
-                            showSaveDialog = true
+                        onAddLinkClick = { showAddLinkDialog = true },
+                        onEditDeviceClick = { savedLink ->
+                            linkToEdit = savedLink
                         },
-                        onDeleteDeviceClick = { dev -> viewModel.deleteSavedDevice(dev) }
+                        onDeleteDeviceClick = { savedLink -> viewModel.deleteSavedDevice(savedLink) }
                     )
                 }
             }
         }
     }
 
-    // Edit / Save preset link dialog (Name and Link only)
-    if (showSaveDialog) {
-        SaveDeviceDialog(
-            initialIp = dialogInitialIp,
-            initialName = dialogInitialName,
-            initialUrl = dialogInitialUrl,
-            onDismiss = { showSaveDialog = false },
-            onSave = { ip, name, url ->
-                viewModel.saveDeviceMapping(ip, name, url)
+    // Dialog for adding a new link in Settings
+    if (showAddLinkDialog) {
+        SavePresetLinkDialog(
+            initialId = 0,
+            initialName = "",
+            initialUrl = "",
+            onDismiss = { showAddLinkDialog = false },
+            onSave = { id, name, url ->
+                viewModel.savePresetLink(id, name, url)
+            }
+        )
+    }
+
+    // Dialog for editing an existing link in Settings
+    linkToEdit?.let { savedLink ->
+        SavePresetLinkDialog(
+            initialId = savedLink.id,
+            initialName = savedLink.deviceName,
+            initialUrl = savedLink.linkUrl,
+            onDismiss = { linkToEdit = null },
+            onSave = { id, name, url ->
+                viewModel.savePresetLink(id, name, url)
+                linkToEdit = null
+            }
+        )
+    }
+
+    // Dialog for editing device custom name on Home Screen
+    deviceToEditName?.let { device ->
+        EditDeviceNameDialog(
+            ip = device.ip,
+            initialName = device.savedName ?: "",
+            onDismiss = { deviceToEditName = null },
+            onSave = { customName ->
+                viewModel.saveDeviceCustomName(device.ip, customName)
+                deviceToEditName = null
             }
         )
     }

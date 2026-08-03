@@ -1,5 +1,7 @@
 package com.example.service
 
+import android.app.ActivityOptions
+import android.app.AlarmManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -10,12 +12,14 @@ import android.content.pm.ServiceInfo
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import com.example.MainActivity
 import com.example.network.NetworkUtils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,7 +37,7 @@ class LinkReceiverService : Service() {
     private var serverSocket: ServerSocket? = null
     private var isListening = false
 
-    private var wakeLock: android.os.PowerManager.WakeLock? = null
+    private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
 
     override fun onCreate() {
@@ -44,12 +48,12 @@ class LinkReceiverService : Service() {
 
     private fun acquireLocks() {
         try {
-            if (wakeLock == null) {
-                val pm = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
-                wakeLock = pm?.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "LinkPush::ReceiverWakeLock")
-                wakeLock?.acquire(30 * 60 * 1000L) // 30 minutes wake lock
+            if (wakeLock == null || !wakeLock!!.isHeld) {
+                val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
+                wakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "LinkPush::ReceiverWakeLock")
+                wakeLock?.acquire() // Indefinite lock to keep CPU active in background
             }
-            if (wifiLock == null) {
+            if (wifiLock == null || !wifiLock!!.isHeld) {
                 val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
                 @Suppress("DEPRECATION")
                 wifiLock = wm?.createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "LinkPush::WifiLock")
@@ -96,9 +100,25 @@ class LinkReceiverService : Service() {
         }
 
         startServerLoop()
+        startHeartbeatLoop()
         _isServiceRunning.value = true
 
         return START_STICKY
+    }
+
+    private fun startHeartbeatLoop() {
+        serviceScope.launch {
+            while (isListening && !serviceJob.isCancelled) {
+                try {
+                    // Re-acquire locks if needed to persuade OS process manager every 1s
+                    acquireLocks()
+                    _heartbeatTicks.value += 1
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                delay(1000L) // Continuous 1-second system keep-alive
+            }
+        }
     }
 
     private fun startServerLoop() {
@@ -130,7 +150,7 @@ class LinkReceiverService : Service() {
 
     private fun handleClientSocket(socket: Socket) {
         try {
-            socket.soTimeout = 3000
+            socket.soTimeout = 4000
             val reader = BufferedReader(InputStreamReader(socket.getInputStream()))
             val writer = PrintWriter(socket.getOutputStream(), true)
 
@@ -152,8 +172,13 @@ class LinkReceiverService : Service() {
                         _lastReceivedUrl.value = normalizedUrl
                         _receivedLinksCount.value += 1
 
+                        wakeScreen()
+
+                        // Always display high priority heads-up notification so screen wakes / banner appears
+                        showLinkReceivedNotification(normalizedUrl)
+
+                        // Attempt direct browser / activity launch from background with Android 14/15 BAL options
                         openUrlInBrowser(normalizedUrl)
-                        // Directly opens in browser without sending received notification as requested
                     }
                 }
             }
@@ -166,15 +191,66 @@ class LinkReceiverService : Service() {
         }
     }
 
-    private fun openUrlInBrowser(url: String) {
+    private fun wakeScreen() {
         try {
-            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            }
-            applicationContext.startActivity(browserIntent)
+            val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
+            @Suppress("DEPRECATION")
+            val screenWakeLock = pm?.newWakeLock(
+                PowerManager.FULL_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.ON_AFTER_RELEASE,
+                "LinkPush::ScreenWakeLock"
+            )
+            screenWakeLock?.acquire(3000L)
         } catch (e: Exception) {
             e.printStackTrace()
-            showLinkReceivedNotification(url)
+        }
+    }
+
+    private fun openUrlInBrowser(url: String) {
+        var launched = false
+
+        // Method 1: Launch via PendingIntent with MODE_BACKGROUND_ACTIVITY_START_ALLOWED (Android 14 & 15 BAL fix)
+        try {
+            val launcherIntent = Intent(this, com.example.UrlLauncherActivity::class.java).apply {
+                putExtra("url", url)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                this,
+                (System.currentTimeMillis() % 10000).toInt(),
+                launcherIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) { // Android 14 (34) & 15 (35)
+                val options = ActivityOptions.makeBasic().apply {
+                    setPendingIntentBackgroundActivityStartMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
+                }
+                pendingIntent.send(this, 0, null, null, null, null, options.toBundle())
+            } else {
+                pendingIntent.send()
+            }
+            launched = true
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        // Method 2: Fallback to direct startActivity with BAL options
+        if (!launched) {
+            try {
+                val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    val options = ActivityOptions.makeBasic().apply {
+                        setPendingIntentBackgroundActivityStartMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
+                    }
+                    startActivity(browserIntent, options.toBundle())
+                } else {
+                    startActivity(browserIntent)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 
@@ -193,7 +269,9 @@ class LinkReceiverService : Service() {
                 "إشعارات الروابط المستلمة",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "إشعارات تنبيهية عند استقبال رابط جديد من جهاز آخر"
+                description = "إشعارات تنبيهية تظهر فورا عند استقبال رابط جديد"
+                enableVibration(true)
+                setShowBadge(true)
             }
 
             val manager = getSystemService(NotificationManager::class.java)
@@ -203,32 +281,37 @@ class LinkReceiverService : Service() {
     }
 
     private fun createServiceNotification(ip: String) = NotificationCompat.Builder(this, CHANNEL_ID)
-        .setContentTitle("LinkPush - خدمة الاستقبال نشطة")
-        .setContentText("في انتظار الروابط على $ip:$PORT")
+        .setContentTitle("LinkPush - خدمة الاستقبال تعمل في الخلفية")
+        .setContentText("جاهز لاستقبال الروابط تلقائياً على $ip:$PORT")
         .setSmallIcon(android.R.drawable.stat_sys_download_done)
         .setOngoing(true)
+        .setPriority(NotificationCompat.PRIORITY_LOW)
         .setContentIntent(getMainActivityPendingIntent())
         .build()
 
     private fun showLinkReceivedNotification(url: String) {
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val launcherIntent = Intent(this, com.example.UrlLauncherActivity::class.java).apply {
+            putExtra("url", url)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
         val pendingIntent = PendingIntent.getActivity(
             this,
-            System.currentTimeMillis().toInt(),
-            intent,
+            (System.currentTimeMillis() % 10000).toInt(),
+            launcherIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
         val notification = NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
-            .setContentTitle("تم استقبال رابط جديد!")
+            .setContentTitle("🔗 تم استقبال رابط جديد!")
             .setContentText(url)
             .setSmallIcon(android.R.drawable.ic_menu_send)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setFullScreenIntent(pendingIntent, true)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
-            .addAction(android.R.drawable.ic_menu_view, "فتح بالمُتصفّح", pendingIntent)
+            .addAction(android.R.drawable.ic_menu_view, "فتح في المتصفح", pendingIntent)
             .build()
 
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -243,6 +326,20 @@ class LinkReceiverService : Service() {
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        // Automatically restart service if task is swiped away from Recents
+        val restartServiceIntent = Intent(applicationContext, LinkReceiverService::class.java).apply {
+            action = ACTION_START_SERVICE
+        }
+        val pendingIntent = PendingIntent.getService(
+            applicationContext, 1, restartServiceIntent,
+            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val alarmManager = getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+        alarmManager?.set(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + 1000, pendingIntent)
     }
 
     private fun stopReceiver() {
@@ -283,6 +380,9 @@ class LinkReceiverService : Service() {
 
         private val _receivedLinksCount = MutableStateFlow(0)
         val receivedLinksCount: StateFlow<Int> = _receivedLinksCount.asStateFlow()
+
+        private val _heartbeatTicks = MutableStateFlow(0L)
+        val heartbeatTicks: StateFlow<Long> = _heartbeatTicks.asStateFlow()
 
         fun startService(context: Context) {
             val intent = Intent(context, LinkReceiverService::class.java).apply {

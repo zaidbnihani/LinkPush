@@ -14,6 +14,7 @@ import com.example.network.LinkSender
 import com.example.network.NetworkScanner
 import com.example.network.NetworkUtils
 import com.example.service.LinkReceiverService
+import com.example.utils.BatteryOptimizationUtils
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -57,6 +58,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _defaultPushUrl = MutableStateFlow("")
     val defaultPushUrl: StateFlow<String> = _defaultPushUrl.asStateFlow()
 
+    private val _isBatteryOptimizationIgnored = MutableStateFlow(true)
+    val isBatteryOptimizationIgnored: StateFlow<Boolean> = _isBatteryOptimizationIgnored.asStateFlow()
+
+    private val _isOverlayPermissionGranted = MutableStateFlow(true)
+    val isOverlayPermissionGranted: StateFlow<Boolean> = _isOverlayPermissionGranted.asStateFlow()
+
     init {
         val database = AppDatabase.getDatabase(application)
         repository = SavedDeviceRepository(database.savedDeviceDao())
@@ -67,10 +74,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
 
         refreshLocalIp()
+        checkBatteryOptimization()
         // Automatically start receiver service on launch
         LinkReceiverService.startService(application)
         // Automatically scan network for devices on app start
         scanNetwork()
+    }
+
+    fun checkBatteryOptimization() {
+        _isBatteryOptimizationIgnored.value =
+            BatteryOptimizationUtils.isIgnoringBatteryOptimizations(getApplication())
+        _isOverlayPermissionGranted.value =
+            BatteryOptimizationUtils.isOverlayPermissionGranted(getApplication())
+    }
+
+    fun requestDisableBatteryOptimization() {
+        BatteryOptimizationUtils.requestIgnoreBatteryOptimizations(getApplication())
+    }
+
+    fun requestOverlayPermission() {
+        BatteryOptimizationUtils.requestOverlayPermission(getApplication())
     }
 
     fun refreshLocalIp() {
@@ -119,14 +142,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 localIp = currentLocalIp,
                 gatewayIp = gatewayIp,
                 onDeviceFound = { device ->
-                    // Exclude self (local device) from discovered list as requested
-                    if (device.isLocalDevice) return@scanSubnet
+                    // Exclude self (local device) and gateway router from discovered list as requested
+                    if (device.isLocalDevice || device.ip == currentLocalIp || device.ip == gatewayIp) return@scanSubnet
 
-                    // Match with saved devices to enrich name and URL
-                    val saved = savedDevices.value.find { it.deviceIp == device.ip }
+                    // Match with SharedPreferences for custom device name
+                    val prefs = getApplication<Application>().getSharedPreferences("device_names", android.content.Context.MODE_PRIVATE)
+                    val customName = prefs.getString(device.ip, null)
                     val enrichedDevice = device.copy(
-                        savedName = saved?.deviceName ?: device.savedName,
-                        savedLinkUrl = saved?.linkUrl ?: device.savedLinkUrl
+                        savedName = customName ?: device.savedName
                     )
                     tempDiscovered.add(enrichedDevice)
                     _discoveredDevices.value = tempDiscovered.toList()
@@ -166,37 +189,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun saveDeviceMapping(ip: String, customName: String, linkUrl: String) {
+    fun savePresetLink(id: Long = 0, name: String, linkUrl: String) {
         viewModelScope.launch {
-            val existing = repository.getDeviceByIp(ip)
-            val deviceToSave = existing?.copy(
-                deviceName = customName.trim(),
-                linkUrl = linkUrl.trim()
-            ) ?: SavedDevice(
-                deviceIp = ip.trim(),
-                deviceName = customName.trim(),
+            val linkToSave = SavedDevice(
+                id = id,
+                deviceIp = "",
+                deviceName = name.trim(),
                 linkUrl = linkUrl.trim()
             )
-
-            repository.saveDevice(deviceToSave)
-            _sendState.value = SendState.Success("تم حفظ الجهاز: $customName")
-
-            // Update in discovered list if present
-            val updatedDiscovered = _discoveredDevices.value.map { dev ->
-                if (dev.ip == ip) {
-                    dev.copy(savedName = customName, savedLinkUrl = linkUrl)
-                } else {
-                    dev
-                }
-            }
-            _discoveredDevices.value = updatedDiscovered
+            repository.saveDevice(linkToSave)
+            _sendState.value = SendState.Success("تم حفظ الرابط: ${name.trim()}")
         }
+    }
+
+    fun saveDeviceCustomName(ip: String, customName: String) {
+        val prefs = getApplication<Application>().getSharedPreferences("device_names", android.content.Context.MODE_PRIVATE)
+        val trimmed = customName.trim()
+        if (trimmed.isBlank()) {
+            prefs.edit().remove(ip).apply()
+        } else {
+            prefs.edit().putString(ip, trimmed).apply()
+        }
+        _sendState.value = SendState.Success("تم حفظ اسم الجهاز")
+
+        val updatedList = _discoveredDevices.value.map { dev ->
+            if (dev.ip == ip) {
+                dev.copy(savedName = trimmed.ifEmpty { null })
+            } else {
+                dev
+            }
+        }
+        _discoveredDevices.value = updatedList
     }
 
     fun deleteSavedDevice(device: SavedDevice) {
         viewModelScope.launch {
             repository.deleteDevice(device)
-            _sendState.value = SendState.Success("تم حذف الجهاز")
+            _sendState.value = SendState.Success("تم حذف الرابط")
         }
     }
 

@@ -1,8 +1,10 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +23,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddLink
+import androidx.compose.material.icons.filled.BatteryAlert
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Phonelink
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
@@ -62,7 +66,12 @@ fun HomeScreen(
     scanProgress: Float,
     discoveredDevices: List<DiscoveredDevice>,
     sendState: SendState,
+    isBatteryOptimizationIgnored: Boolean = true,
+    onFixBatteryOptimization: () -> Unit = {},
+    isOverlayPermissionGranted: Boolean = true,
+    onFixOverlayPermission: () -> Unit = {},
     onDeviceClick: (DiscoveredDevice) -> Unit,
+    onDeviceLongClick: (DiscoveredDevice) -> Unit = {},
     onRescanClick: () -> Unit,
     onManualIpClick: (String) -> Unit
 ) {
@@ -74,6 +83,102 @@ fun HomeScreen(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        if (!isOverlayPermissionGranted) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.BatteryAlert,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "إذن الظهور فوق التطبيقات مفقود",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                            Text(
+                                text = "مطلوب لفتح الروابط تلقائياً في المتصفح أثناء التواجد خارج التطبيق.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        TextButton(onClick = onFixOverlayPermission) {
+                            Text(
+                                "تفعيل",
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!isBatteryOptimizationIgnored) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.BatteryAlert,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "تحسين البطارية مفعّل",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                            Text(
+                                text = "قد يتوقف استقبال الروابط في الخلفية عند الخروج من التطبيق. انقر للاستثناء.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        TextButton(onClick = onFixBatteryOptimization) {
+                            Text(
+                                "استثناء",
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -207,7 +312,8 @@ fun HomeScreen(
                 DiscoveredDeviceItemCard(
                     device = device,
                     sendState = sendState,
-                    onDeviceClick = { onDeviceClick(device) }
+                    onDeviceClick = { onDeviceClick(device) },
+                    onDeviceLongClick = { onDeviceLongClick(device) }
                 )
             }
         }
@@ -224,11 +330,13 @@ fun HomeScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun DiscoveredDeviceItemCard(
     device: DiscoveredDevice,
     sendState: SendState,
-    onDeviceClick: () -> Unit
+    onDeviceClick: () -> Unit,
+    onDeviceLongClick: () -> Unit = {}
 ) {
     val isSendingThis = sendState is SendState.Sending && sendState.targetIp == device.ip
     val displayName = device.savedName?.takeIf { it.isNotBlank() } ?: "جهاز (${device.ip})"
@@ -241,7 +349,10 @@ fun DiscoveredDeviceItemCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onDeviceClick() }
+            .combinedClickable(
+                onClick = { onDeviceClick() },
+                onLongClick = { onDeviceLongClick() }
+            )
             .testTag("discovered_device_${device.ip.replace('.', '_')}")
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -298,6 +409,14 @@ fun DiscoveredDeviceItemCard(
                             color = MaterialTheme.colorScheme.secondary
                         )
                     }
+                }
+
+                IconButton(onClick = onDeviceLongClick) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "تعديل الاسم",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
                 }
             }
 

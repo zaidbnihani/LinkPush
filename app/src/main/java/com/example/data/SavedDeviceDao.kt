@@ -27,4 +27,7 @@ interface SavedDeviceDao {
 
     @Query("DELETE FROM saved_devices WHERE id = :id")
     suspend fun deleteDeviceById(id: Long)
+
+    @Query("DELETE FROM saved_devices")
+    suspend fun deleteAllSavedDevices()
 }

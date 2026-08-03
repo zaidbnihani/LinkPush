@@ -20,4 +20,8 @@ class SavedDeviceRepository(private val dao: SavedDeviceDao) {
     suspend fun deleteDeviceById(id: Long) {
         dao.deleteDeviceById(id)
     }
+
+    suspend fun deleteAllSavedDevices() {
+        dao.deleteAllSavedDevices()
+    }
 }

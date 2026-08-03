@@ -58,8 +58,9 @@ object NetworkScanner {
     }
 
     private fun checkDevice(ip: String, isLocal: Boolean, isGateway: Boolean): DiscoveredDevice? {
+        if (isLocal || isGateway) return null
         val startTime = System.currentTimeMillis()
-        val portsToCheck = if (isGateway) listOf(DEFAULT_PORT, 80, 8080, 443) else listOf(DEFAULT_PORT, 80, 8080)
+        val portsToCheck = listOf(DEFAULT_PORT)
 
         for (port in portsToCheck) {
             try {
