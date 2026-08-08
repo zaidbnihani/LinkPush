@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://files.catbox.moe/hwaxms.png" width="30%">
+</p>
+
 # Product Requirements Document (PRD)
 ## QuranTune — Promotional Website
 
